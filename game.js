@@ -232,6 +232,8 @@ class Car {
                 topSpeed = 24; this.nitro -= 1.2;
                 particles.push(new Particle(this.x, this.y + 30, '#00ffff', 4, Math.PI/2 + (Math.random()-0.5)));
                 if (sounds.nitro.paused) playSound('nitro');
+                // AUTO-ACCELERATION LOGIC: Shift now triggers speed increase
+                this.speed += 0.45;
             } else {
                 if (this.nitro < 100) this.nitro += 0.25;
                 sounds.nitro.pause();
@@ -239,7 +241,7 @@ class Car {
             }
 
             if (keys['ArrowUp']) this.speed += 0.35;
-            else this.speed *= 0.98;
+            else if (!keys['Shift']) this.speed *= 0.98; // Only slow down if NOT boosting
             if (keys['ArrowDown']) this.speed -= 0.5;
 
             if (Math.abs(this.speed) > 1) {
@@ -578,32 +580,18 @@ const setupMobileControls = () => {
     `;
     document.body.appendChild(touchUI);
 
-    // This function binds the visual buttons to your existing 'keys' object
     const bind = (id, keyName) => {
         const btn = document.getElementById(id);
-        
-        const startAction = (e) => {
-            e.preventDefault();
-            keys[keyName] = true; // This triggers the movement logic in your Car class
-        };
-        
-        const stopAction = (e) => {
-            e.preventDefault();
-            keys[keyName] = false; // This stops the movement
-        };
-
-        // Standard touch events for mobile
+        const startAction = (e) => { e.preventDefault(); keys[keyName] = true; };
+        const stopAction = (e) => { e.preventDefault(); keys[keyName] = false; };
         btn.addEventListener('touchstart', startAction, {passive: false});
         btn.addEventListener('touchend', stopAction, {passive: false});
         btn.addEventListener('touchcancel', stopAction, {passive: false});
-        
-        // Mouse events for testing on laptop with clicks
         btn.addEventListener('mousedown', startAction);
         btn.addEventListener('mouseup', stopAction);
         btn.addEventListener('mouseleave', stopAction);
     };
 
-    // BINDING TO YOUR EXACT KEYS
     bind('b-left', 'ArrowLeft');
     bind('b-right', 'ArrowRight');
     bind('b-up', 'ArrowUp');
@@ -611,5 +599,4 @@ const setupMobileControls = () => {
     bind('b-nitro', 'Shift');
 };
 
-// Run the setup
 setupMobileControls();
