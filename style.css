@@ -1,0 +1,105 @@
+body {
+    background-color: #050505;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    margin: 0;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: white;
+    overflow: hidden;
+    touch-action: none;
+}
+
+#game-wrapper {
+    position: relative;
+    height: 90vh;
+    aspect-ratio: 3 / 4;
+    background: #000;
+    box-shadow: 0 0 100px rgba(0,255,255,0.1);
+    border-radius: 12px;
+    border: 4px solid #333;
+    overflow: hidden;
+}
+
+canvas { width: 100%; height: 100%; display: block; }
+
+.ui-layer {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: linear-gradient(135deg, rgba(0,0,0,0.9), rgba(20,20,40,0.95));
+    display: flex; flex-direction: column;
+    justify-content: center; align-items: center;
+    z-index: 20;
+}
+
+.hidden { display: none !important; }
+
+.game-title {
+    font-size: 8vh; font-weight: 900; color: #e74c3c;
+    text-shadow: 0 0 20px rgba(231, 76, 60, 0.5);
+    margin-bottom: 4vh; letter-spacing: -2px; font-style: italic;
+}
+
+button {
+    background: linear-gradient(45deg, #e74c3c, #c0392b);
+    color: white; border: none;
+    padding: 15px 60px; font-size: 24px; font-weight: 800;
+    cursor: pointer; transform: skewX(-10deg);
+    transition: 0.2s; box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+}
+
+.car-grid { display: flex; gap: 30px; margin-bottom: 40px; }
+.car-card { text-align: center; cursor: pointer; transition: 0.3s; opacity: 0.7; }
+.car-card:hover { opacity: 1; transform: scale(1.1); }
+.preview { width: 60px; height: 100px; margin: 0 auto 10px; border-radius: 8px; }
+.red { background: #e74c3c; box-shadow: 0 0 20px #e74c3c; }
+.blue { background: #3498db; box-shadow: 0 0 20px #3498db; }
+.gold { background: #f1c40f; box-shadow: 0 0 20px #f1c40f; }
+
+#hud {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; padding: 15px; box-sizing: border-box;
+    display: flex; flex-direction: column; justify-content: space-between;
+}
+
+.hud-row { display: flex; justify-content: space-between; align-items: center; width: 100%; }
+.middle { justify-content: center; margin-top: 20px; }
+
+#timer { font-size: 32px; font-weight: bold; color: #fff; text-shadow: 0 0 10px cyan; }
+#position { font-size: 32px; font-weight: bold; color: #f1c40f; }
+#progress-text { font-size: 40px; font-weight: 900; color: rgba(255,255,255,0.3); }
+#speedometer { font-size: 48px; font-weight: 900; font-style: italic; }
+
+.nitro-bar-bg {
+    width: 150px; height: 12px; background: rgba(255,255,255,0.2);
+    border: 2px solid white; transform: skewX(-20deg);
+}
+#nitro-fill { width: 0%; height: 100%; background: #00ffff; box-shadow: 0 0 10px #00ffff; }
+
+/* --- MOBILE CONTROLS --- */
+#touch-controls {
+    position: absolute; bottom: 30px; left: 0; width: 100%;
+    display: flex; justify-content: space-between; align-items: flex-end;
+    padding: 0 20px; box-sizing: border-box; pointer-events: none; z-index: 100;
+}
+
+.controls-left, .controls-right, .controls-center { pointer-events: auto; display: flex; gap: 10px; }
+
+.touch-btn {
+    width: 65px; height: 65px; border-radius: 50%;
+    background: rgba(255, 255, 255, 0.1); border: 2px solid rgba(255, 255, 255, 0.3);
+    color: white; font-size: 28px; display: flex; justify-content: center; align-items: center;
+    user-select: none; backdrop-filter: blur(2px);
+}
+
+.gas-btn { width: 85px; height: 85px; background: rgba(46, 204, 113, 0.15); border-color: rgba(46, 204, 113, 0.4); }
+
+.nitro-long-btn {
+    width: 120px; height: 45px; border-radius: 10px;
+    background: rgba(0, 255, 255, 0.1); border: 2px solid rgba(0, 255, 255, 0.4);
+    color: cyan; font-weight: bold; font-size: 12px; display: flex; justify-content: center; align-items: center;
+    user-select: none;
+}
+
+.touch-btn:active, .nitro-long-btn:active { background: rgba(255, 255, 255, 0.3); transform: scale(0.9); }

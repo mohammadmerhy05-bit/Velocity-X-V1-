@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pro Street Racer</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="game-wrapper">
+        <canvas id="gameCanvas"></canvas>
+
+        <div id="menu-layer" class="ui-layer">
+            <h1 class="game-title">VELOCITY <span style="color:#fff">X</span></h1>
+            
+            <div id="main-menu">
+                <button onclick="showModeSelect('RACING')">RACING MODE</button>
+                <div style="margin: 20px;"></div>
+                <button onclick="showModeSelect('COLOR_STEAL')" style="background: linear-gradient(45deg, #9b59b6, #8e44ad);">COLOR STEAL</button>
+            </div>
+
+            <div id="car-select" class="hidden">
+                <h2 id="car-select-title">SELECT CLASS</h2>
+                <div class="car-grid">
+                    <div class="car-card" onclick="startGame('red')">
+                        <div class="preview red"></div>
+                        <span>SPEEDSTER</span>
+                    </div>
+                    <div class="car-card" onclick="startGame('blue')">
+                        <div class="preview blue"></div>
+                        <span>DRIFTER</span>
+                    </div>
+                    <div class="car-card" onclick="startGame('gold')">
+                        <div class="preview gold"></div>
+                        <span>TANK</span>
+                    </div>
+                </div>
+                <button onclick="showMainMenu()" class="small-btn">BACK</button>
+            </div>
+
+            <div id="game-over" class="hidden">
+                <h1 id="go-title">FINISH</h1>
+                <h2 id="final-time">Time: 00:00</h2>
+                <button onclick="showMainMenu()">RETRY</button>
+            </div>
+        </div>
+
+        <div id="hud" class="hidden">
+            <div class="hud-row">
+                <div id="timer">00:00</div>
+                <div id="position">POS: 1/4</div>
+            </div>
+
+            <div class="hud-row middle">
+                 <div id="progress-text">0%</div>
+            </div>
+
+            <div class="hud-footer">
+                <div id="speedometer">0 <span class="unit">KM/H</span></div>
+                <div class="nitro-container">
+                    <div class="nitro-bar-bg">
+                        <div id="nitro-fill"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="touch-controls" class="hidden">
+            <div class="controls-left">
+                <div class="touch-btn" id="m-left">←</div>
+                <div class="touch-btn" id="m-right">→</div>
+            </div>
+            <div class="controls-center">
+                <div class="nitro-long-btn" id="m-boost">NITRO BOOST</div>
+            </div>
+            <div class="controls-right">
+                <div class="touch-btn gas-btn" id="m-up">↑</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>
