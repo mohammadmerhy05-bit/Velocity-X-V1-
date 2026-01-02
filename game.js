@@ -2,8 +2,121 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
+// --- 2. NEW SYNTHESIZED AUDIO SYSTEM (NO MP3 FILES REQUIRED) ---
+const AudioContext = window.AudioContext || window.webkitAudioContext;
+const audioCtx = new AudioContext();
+
+// Engine Sound Variables
+let engineOsc = null;
+let engineGain = null;
+let isEngineRunning = false;
+let isNitroPlaying = false;
+
+// Helper: Unlock Audio Context on first click
+function unlockAudio() {
+    if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+}
+window.addEventListener('click', unlockAudio);
+window.addEventListener('touchstart', unlockAudio);
+
+// Sound Generator Function
+function playSound(type) {
+    unlockAudio();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    
+    const now = audioCtx.currentTime;
+
+    if (type === 'nitro') {
+        if (isNitroPlaying) return; // Don't spam nitro
+        isNitroPlaying = true;
+        // Sci-fi rising pitch
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(200, now);
+        osc.frequency.linearRampToValueAtTime(600, now + 1.0);
+        gain.gain.setValueAtTime(0.1, now);
+        gain.gain.linearRampToValueAtTime(0, now + 1.0);
+        osc.start(now);
+        osc.stop(now + 1.0);
+        setTimeout(() => { isNitroPlaying = false; }, 1000);
+    } 
+    else if (type === 'bump') {
+        // Low thud
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(150, now);
+        osc.frequency.exponentialRampToValueAtTime(40, now + 0.1);
+        gain.gain.setValueAtTime(0.2, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+        osc.start(now);
+        osc.stop(now + 0.1);
+    }
+    else if (type === 'crash') {
+        // White noise-ish crash
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(100, now);
+        osc.frequency.linearRampToValueAtTime(20, now + 0.5);
+        gain.gain.setValueAtTime(0.3, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+        osc.start(now);
+        osc.stop(now + 0.5);
+        // Stop engine on crash
+        stopEngineSound();
+    }
+    else if (type === 'test') {
+        // Simple beep for the button
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(440, now);
+        gain.gain.setValueAtTime(0.1, now);
+        osc.start(now);
+        osc.stop(now + 0.2);
+    }
+}
+
+function startEngineSound() {
+    if (isEngineRunning) return;
+    unlockAudio();
+
+    engineOsc = audioCtx.createOscillator();
+    engineGain = audioCtx.createGain();
+    
+    engineOsc.type = 'sawtooth';
+    engineOsc.frequency.value = 50; // Idle RPM
+    
+    // Filter to make it sound muffled/engine-like
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 400;
+
+    engineOsc.connect(filter);
+    filter.connect(engineGain);
+    engineGain.connect(audioCtx.destination);
+    
+    engineGain.gain.value = 0.18; // Keep engine volume low
+    engineOsc.start();
+    isEngineRunning = true;
+}
+
+function updateEnginePitch(speed) {
+    if (isEngineRunning && engineOsc) {
+        // Pitch goes up with speed (50Hz to 250Hz)
+        const targetFreq = 50 + (Math.abs(speed) * 8);
+        engineOsc.frequency.setTargetAtTime(targetFreq, audioCtx.currentTime, 0.1);
+    }
+}
+
+function stopEngineSound() {
+    if (engineOsc) {
+        try { engineOsc.stop(); } catch(e){}
+        engineOsc = null;
+        isEngineRunning = false;
+    }
+}
+
 // --- MOBILE UI INJECTION ---
-// This creates the buttons visually on your mobile screen
 const mobileUI = document.createElement('div');
 mobileUI.innerHTML = `
     <style>
@@ -27,33 +140,6 @@ mobileUI.innerHTML = `
 `;
 document.body.appendChild(mobileUI);
 
-// --- AUDIO SYSTEM START ---
-const sounds = {
-    music: new Audio('music.mp3'),
-    engine: new Audio('engine.mp3'),
-    nitro: new Audio('nitro.mp3'),
-    bump: new Audio('bump.mp3'),
-    crash: new Audio('crash.mp3')
-};
-
-// Setup Audio Properties
-sounds.music.loop = true;
-sounds.music.volume = 0.4;
-sounds.engine.loop = true;
-sounds.engine.volume = 0.2;
-sounds.nitro.volume = 0.6;
-sounds.bump.volume = 0.8;
-sounds.crash.volume = 0.8;
-
-function playSound(name) {
-    if (sounds[name]) {
-        if (name !== 'music' && name !== 'engine') {
-            sounds[name].currentTime = 0;
-        }
-        sounds[name].play().catch(e => console.log("Audio waiting for interaction"));
-    }
-}
-// --- AUDIO SYSTEM END ---
 
 const RACE_LENGTH = 15000;
 let ROAD_WIDTH = 280;
@@ -63,7 +149,8 @@ let selectedMode = 'RACING';
 let countdownValue = 3;
 let countdownTimer = null;
 
-let cameraY = 0;
+let cameraY = 0; 
+let worldScale = 1;
 let shakeAmount = 0;
 let gameFrame = 0;
 let startTime = 0;
@@ -73,7 +160,7 @@ let player;
 let bots = [];
 let particles = [];
 
-// 2. RESPONSIVE ENGINE
+// 3. RESPONSIVE ENGINE
 function resize() {
     const rect = canvas.getBoundingClientRect();
     canvas.width = rect.width;
@@ -90,8 +177,10 @@ window.addEventListener('keyup', e => { if(keys.hasOwnProperty(e.key)) keys[e.ke
 // --- MOBILE CONTROLS LOGIC ---
 const setupMobileBtn = (id, keyName) => {
     const el = document.getElementById(id);
-    el.addEventListener('touchstart', (e) => { e.preventDefault(); keys[keyName] = true; });
-    el.addEventListener('touchend', (e) => { e.preventDefault(); keys[keyName] = false; });
+    if(el){
+        el.addEventListener('touchstart', (e) => { e.preventDefault(); keys[keyName] = true; });
+        el.addEventListener('touchend', (e) => { e.preventDefault(); keys[keyName] = false; });
+    }
 };
 setupMobileBtn('m-left', 'ArrowLeft');
 setupMobileBtn('m-right', 'ArrowRight');
@@ -99,8 +188,9 @@ setupMobileBtn('m-up', 'ArrowUp');
 setupMobileBtn('m-down', 'ArrowDown');
 setupMobileBtn('m-nitro', 'Shift');
 
-// 3. MENU NAVIGATION
+// 4. MENU NAVIGATION
 window.showModeSelect = function(mode) {
+    unlockAudio();
     selectedMode = mode;
     document.getElementById('main-menu').classList.add('hidden');
     document.getElementById('car-select').classList.remove('hidden');
@@ -123,15 +213,11 @@ window.showMainMenu = function() {
     document.getElementById('car-select').classList.add('hidden');  
     document.getElementById('game-over').classList.add('hidden');
     document.getElementById('hud').classList.add('hidden');
-   
-    // Stop all game sounds
-    sounds.music.pause();
-    sounds.music.currentTime = 0;
-    sounds.engine.pause();
-    sounds.nitro.pause();
+    
+    stopEngineSound();
 };
 
-// 4. PARTICLE SYSTEM
+// 5. PARTICLE SYSTEM
 class Particle {
     constructor(x, y, color, speed, angle) {
         this.x = x; this.y = y;
@@ -144,28 +230,64 @@ class Particle {
     update() {
         this.x += this.vx;
         this.y += this.vy;
-        this.life -= this.decay;
+        this.life -= this.decay;   
+        // This calculates the zoom. 1 is normal. 
+// As speed goes up, scale drops slightly (e.g., 0.95), making things look smaller/further away.
+let targetScale = 1 - (player.speed * 0.003); 
+worldScale += (targetScale - worldScale) * 0.1; // Smooth transition
     }
-    draw(camY) {
-        if (this.y - camY > canvas.height + 50 || this.y - camY < -50) return;
-        ctx.save();
-        ctx.globalAlpha = this.life;
-        ctx.fillStyle = this.color;
-        ctx.beginPath();
-        ctx.arc(this.x, this.y - camY, 3, 0, Math.PI*2);
-        ctx.fill();
-        ctx.restore();
-    }
-}
+draw(camY) {
 
-// 5. ENVIRONMENT & HAZARDS
+
+
+        if (this.y - camY > canvas.height + 50 || this.y - camY < -50) return;
+
+
+
+        ctx.save();
+
+
+
+        
+
+
+
+        ctx.globalAlpha = this.life;
+
+
+
+        ctx.fillStyle = this.color;
+
+
+
+        ctx.beginPath();
+
+
+
+        ctx.arc(this.x, this.y - camY, 3, 0, Math.PI*2);
+
+
+
+        ctx.fill();
+
+
+
+        ctx.restore();
+
+
+    }
+
+
+
+}
+// 6. ENVIRONMENT & HAZARDS
 const decorations = [];
 const oilSpills = [];
 
 for (let y = -RACE_LENGTH - 1000; y < 1000; y += 80) {
     if (Math.random() > 0.3) decorations.push({ y: y, side: -1, type: Math.random() > 0.8 ? 'rock' : 'tree' });
     if (Math.random() > 0.3) decorations.push({ y: y, side: 1, type: Math.random() > 0.8 ? 'rock' : 'tree' });
-   
+    
     if (y < -500 && Math.random() > 0.94) {
         oilSpills.push({
             y: y,
@@ -180,7 +302,7 @@ function getRoadCenter(y) {
     return (canvas.width / 2) + (Math.sin(y * 0.003) * (canvas.width * 0.25)) + (Math.sin(y * 0.01) * 30);
 }
 
-// 6. CAR CLASS
+// 7. CAR CLASS
 class Car {
     constructor(x, y, color, isPlayer, difficulty = 1) {
         this.x = x; this.y = y;
@@ -207,7 +329,7 @@ class Car {
 
     update() {
         if (gameState === 'COUNTDOWN') return false;
-       
+        
         if (this.oilImmuneTimer > 0) this.oilImmuneTimer--;
 
         if (this.respawnTimer > 0) {
@@ -219,6 +341,7 @@ class Car {
                 this.angle = 0;
                 this.speed = 8;
                 this.oilImmuneTimer = 120;
+                if(this.isPlayer) startEngineSound();
             }
             return false;
         }
@@ -227,17 +350,15 @@ class Car {
 
         if (this.isPlayer) {
             let topSpeed = this.maxSpeed;
-           
-            if (keys['Shift'] && this.nitro > 0) {
+            
+            if (keys['Shift'] && this.nitro > 0) { 
                 topSpeed = 24; this.nitro -= 1.2;
                 particles.push(new Particle(this.x, this.y + 30, '#00ffff', 4, Math.PI/2 + (Math.random()-0.5)));
-                if (sounds.nitro.paused) playSound('nitro');
+                playSound('nitro');
                 // AUTO-ACCELERATION LOGIC: Shift now triggers speed increase
                 this.speed += 0.45;
             } else {
                 if (this.nitro < 100) this.nitro += 0.25;
-                sounds.nitro.pause();
-                sounds.nitro.currentTime = 0;
             }
 
             if (keys['ArrowUp']) this.speed += 0.35;
@@ -250,8 +371,8 @@ class Car {
                 if (keys['ArrowRight']) this.angle += turnPower;
             }
 
-            let pitch = 0.5 + (Math.abs(this.speed) / 24) * 1.5;
-            sounds.engine.playbackRate = Math.max(0.5, Math.min(pitch, 3.0));
+            // --- ENGINE SOUND UPDATE ---
+            updateEnginePitch(this.speed);
 
         } else {
             this.speed += 0.35;
@@ -278,7 +399,7 @@ class Car {
         let currentMax = (this.isPlayer && keys['Shift'] && this.nitro > 0) ? 24 : (this.isBoosting ? 23 : this.maxSpeed);
         this.speed = Math.min(this.speed, currentMax);
         this.speed = Math.max(this.speed, -4);
-       
+        
         this.x += Math.sin(this.angle) * this.speed;
         this.y -= Math.cos(this.angle) * this.speed;
 
@@ -327,7 +448,7 @@ class Car {
     }
 }
 
-// 7. GAME LOGIC
+// 8. GAME LOGIC
 function formatTime(ms) {
     let totalSeconds = Math.floor(ms / 1000);
     let mins = Math.floor(totalSeconds / 60);
@@ -337,10 +458,11 @@ function formatTime(ms) {
 }
 
 function startGame(color) {
+    unlockAudio();
     let hex = color === 'red' ? '#e74c3c' : (color === 'blue' ? '#3498db' : '#f1c40f');
     resize();
     let center = canvas.width / 2;
-   
+    
     player = new Car(center, 0, hex, true);
     bots = [
         new Car(center - 100, 0, '#8e44ad', false, 1.2),
@@ -348,6 +470,7 @@ function startGame(color) {
         new Car(center + 50, 0, '#e67e22', false, 1.5),
         new Car(center + 100, 0, '#ff00ff', false, 1.4)
     ];
+    
 
     // --- MODE SPECIFIC SETUP ---
     if (selectedMode === 'COLOR_STEAL') {
@@ -366,9 +489,8 @@ function startGame(color) {
     document.getElementById('hud').classList.remove('hidden');
 
     if(countdownTimer) clearInterval(countdownTimer);
-   
-    playSound('music');
-    playSound('engine');
+    
+    // startEngineSound(); // Engine starts after countdown now
 
     countdownTimer = setInterval(() => {
         countdownValue--;
@@ -376,6 +498,7 @@ function startGame(color) {
             clearInterval(countdownTimer);
             gameState = 'PLAY';
             startTime = Date.now();
+            startEngineSound(); // Start engine when GO!
         }
     }, 1000);
 }
@@ -386,12 +509,12 @@ function update() {
     if (shakeAmount > 0) shakeAmount *= 0.9;
     let offRoad = player.update();
     if(offRoad && shakeAmount < 2) shakeAmount = 2;
-   
+    
     // Only update bots if we are in racing mode
     if (selectedMode === 'RACING') {
         bots.forEach(b => b.update());
     }
-   
+    
     if (gameState === 'PLAY' && selectedMode === 'RACING') {
         let allCars = [player, ...bots];
         for(let i=0; i<allCars.length; i++){
@@ -411,16 +534,16 @@ function update() {
             }
         }
     }
-   
+    
     let targetCamY = player.y - canvas.height * 0.75;
     cameraY += (targetCamY - cameraY) * 0.1;
     particles.forEach(p => p.update());
     particles = particles.filter(p => p.life > 0);
-   
+    
     // End condition only matters for racing
     if (selectedMode === 'RACING' && player.y < -RACE_LENGTH) {
         gameState = 'GAMEOVER';
-        sounds.engine.pause();
+        stopEngineSound();
         document.getElementById('menu-layer').classList.remove('hidden');
         document.getElementById('game-over').classList.remove('hidden');
         document.getElementById('hud').classList.add('hidden');
@@ -431,7 +554,7 @@ function update() {
 function draw() {
     ctx.save();
     if (shakeAmount > 0.5) ctx.translate((Math.random()-0.5)*shakeAmount, (Math.random()-0.5)*shakeAmount);
-   
+    
     // Background based on mode
     if (selectedMode === 'COLOR_STEAL') {
         ctx.fillStyle = '#ffffff';
@@ -439,14 +562,15 @@ function draw() {
         ctx.fillStyle = '#0a2f15';
     }
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-   
+    
     if (gameState === 'PLAY' || gameState === 'COUNTDOWN') {
-       
+        
         // ONLY draw world if NOT Color Steal
         if (selectedMode === 'RACING') {
             let startY = Math.floor(cameraY / 20) * 20;
             let endY = startY + canvas.height + 200;
-           
+            
+            
             for (let y = startY; y < endY; y += 20) {
                 let cx = getRoadCenter(y);
                 let cxNext = getRoadCenter(y+20);
@@ -461,11 +585,11 @@ function draw() {
                     ctx.beginPath(); ctx.moveTo(cx, y - cameraY); ctx.lineTo(cxNext, y+20 - cameraY); ctx.stroke();
                 }
             }
-           
+            
             let startCX = getRoadCenter(0);
             ctx.fillStyle = 'white';
             ctx.fillRect(startCX - ROAD_WIDTH/2, 0 - cameraY - 10, ROAD_WIDTH, 20);
-           
+            
             oilSpills.forEach(oil => {
                 if (oil.y > startY && oil.y < endY) {
                     let oilX = getRoadCenter(oil.y) + oil.xOffset;
@@ -509,14 +633,14 @@ function draw() {
             document.getElementById('timer').innerText = finalTimeText;
         }
 
-   
+    
         if (selectedMode === 'RACING') {
             let percent = Math.min(100, Math.max(0, Math.floor((Math.abs(player.y) / RACE_LENGTH) * 100)));
             document.getElementById('progress-text').innerText = percent + "%";
             let rank = bots.filter(b => b.y < player.y).length + 1;
             document.getElementById('position').innerText = `POS: ${rank}/4`;
         }
-       
+        
         document.getElementById('speedometer').innerHTML = `${Math.floor(player.speed * 20)} <span class="unit">KM/H</span>`;
         document.getElementById('nitro-fill').style.width = `${player.nitro}%`;
 
@@ -537,27 +661,27 @@ function draw() {
 function gameLoop() { update(); draw(); }
 gameLoop();
 
-// --- FINAL TOUCH BINDING ENGINE ---
+// 9. FINAL TOUCH BINDING ENGINE
 const setupMobileControls = () => {
     const mobileStyles = document.createElement('style');
     mobileStyles.innerHTML = `
-        .touch-controls { 
-            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); 
-            width: 100%; max-width: 600px; display: flex; justify-content: space-around; 
-            align-items: center; z-index: 10000; pointer-events: none; 
+        .touch-controls {
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+            width: 100%; max-width: 600px; display: flex; justify-content: space-around;
+            align-items: center; z-index: 10000; pointer-events: none;
         }
         .ctrl-set { display: flex; gap: 15px; pointer-events: auto; }
         .speed-set { flex-direction: column; gap: 5px; }
-        .t-btn { 
-            width: 80px; height: 80px; background: rgba(255,255,255,0.2); 
-            border: 3px solid white; border-radius: 15px; display: flex; 
-            align-items: center; justify-content: center; color: white; 
-            font-weight: bold; user-select: none; touch-action: none; 
+        .t-btn {
+            width: 80px; height: 80px; background: rgba(255,255,255,0.2);
+            border: 3px solid white; border-radius: 15px; display: flex;
+            align-items: center; justify-content: center; color: white;
+            font-weight: bold; user-select: none; touch-action: none;
             -webkit-tap-highlight-color: transparent; font-size: 30px;
         }
         .t-btn:active { background: rgba(0, 255, 0, 0.4); scale: 0.9; }
-        #b-nitro { 
-            width: 100px; height: 60px; background: rgba(0, 255, 255, 0.3); 
+        #b-nitro {
+            width: 100px; height: 60px; background: rgba(0, 255, 255, 0.3);
             border-color: #00ffff; font-size: 16px; border-radius: 40px;
         }
     `;
@@ -584,12 +708,14 @@ const setupMobileControls = () => {
         const btn = document.getElementById(id);
         const startAction = (e) => { e.preventDefault(); keys[keyName] = true; };
         const stopAction = (e) => { e.preventDefault(); keys[keyName] = false; };
-        btn.addEventListener('touchstart', startAction, {passive: false});
-        btn.addEventListener('touchend', stopAction, {passive: false});
-        btn.addEventListener('touchcancel', stopAction, {passive: false});
-        btn.addEventListener('mousedown', startAction);
-        btn.addEventListener('mouseup', stopAction);
-        btn.addEventListener('mouseleave', stopAction);
+        if(btn) {
+            btn.addEventListener('touchstart', startAction, {passive: false});
+            btn.addEventListener('touchend', stopAction, {passive: false});
+            btn.addEventListener('touchcancel', stopAction, {passive: false});
+            btn.addEventListener('mousedown', startAction);
+            btn.addEventListener('mouseup', stopAction);
+            btn.addEventListener('mouseleave', stopAction);
+        }
     };
 
     bind('b-left', 'ArrowLeft');
@@ -600,3 +726,367 @@ const setupMobileControls = () => {
 };
 
 setupMobileControls();
+
+// HEROIC RETRO SOUNDTRACK (SYNTH-POWER)
+
+const heroicMelody = [
+    164.81, 164.81, 196.00, 220.00, // E3, E3, G3, A3
+    246.94, 246.94, 220.00, 196.00, // B3, B3, A3, G3
+    164.81, 164.81, 196.00, 220.00, // E3, E3, G3, A3
+    146.83, 146.83, 130.81, 146.83  // D3, D3, C3, D3
+];
+
+let heroIndex = 0;
+let heroInterval = null;
+
+function playHeroicTick() {
+    if (gameState !== 'PLAY' && gameState !== 'COUNTDOWN') {
+        stopHeroMusic();
+        return;
+    }
+
+    const now = audioCtx.currentTime;
+    const freq = heroicMelody[heroIndex % heroicMelody.length];
+    
+    // Create two oscillators for a "thick" heroic sound (Power Chord effect)
+    [freq, freq * 1.5].forEach((f, i) => {
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        
+        // Sawtooth = Aggressive/Heroic, Triangle = Softer
+        osc.type = i === 0 ? 'sawtooth' : 'triangle'; 
+        osc.frequency.setValueAtTime(f, now);
+        
+        // A bit of "detune" makes it sound like a 1980s synth
+        osc.detune.setValueAtTime(i === 0 ? -5 : 5, now);
+
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 1200;
+
+        osc.connect(filter);
+        filter.connect(g);
+        g.connect(audioCtx.destination);
+
+        // VOLUME: Higher than before (0.15 instead of 0.08)
+        g.gain.setValueAtTime(0.12, now);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + 0.4);
+
+        osc.start(now);
+        osc.stop(now + 0.4);
+    });
+
+    heroIndex++;
+}
+
+function startHeroMusic() {
+    if (heroInterval) return;
+    heroIndex = 0;
+    // 150 BPM pace
+    heroInterval = setInterval(playHeroicTick, 200);
+}
+
+function stopHeroMusic() {
+    if (heroInterval) {
+        clearInterval(heroInterval);
+        heroInterval = null;
+    }
+}
+
+// Re-binding the game functions to ensure this new music plays
+window.startGame = (function(oldStart) {
+    return function(color) {
+        if(typeof oldStart === 'function') oldStart(color);
+        startHeroMusic();
+    };
+})(window.startGame);
+
+window.showMainMenu = (function(oldMenu) {
+    return function() {
+        if(typeof oldMenu === 'function') oldMenu();
+        stopHeroMusic();
+    };
+})(window.showMainMenu);
+
+
+
+
+// ==========================================
+// FIX: ULTIMATE RANK & HIGH SCORE SYSTEM
+// ==========================================
+
+// 1. Initialize High Score (Best Time)
+let savedBest = localStorage.getItem('racingBestTime');
+window.bestTime = savedBest ? parseFloat(savedBest) : Infinity;
+
+// 2. The Final Score Logic
+function handleRaceEnd() {
+    // Calculate Final Time
+    const finalTimeMs = Date.now() - startTime;
+    
+    // Calculate Rank (How many bots are ahead of you)
+    let rank = bots.filter(b => b.y < player.y).length + 1;
+    let totalCars = bots.length + 1; // You + Bots
+
+    // Check for New Best Time (only if you finished the race)
+    let isNewRecord = false;
+    if (finalTimeMs < window.bestTime) {
+        window.bestTime = finalTimeMs;
+        localStorage.setItem('racingBestTime', window.bestTime.toString());
+        isNewRecord = true;
+    }
+
+    // 3. Update the UI Text
+    const gameOverDiv = document.getElementById('game-over');
+    
+    // Create a special results area inside the Game Over screen
+    gameOverDiv.innerHTML = `
+        <h1 style="color: #f1c40f; font-size: 50px; margin-bottom: 10px;">RACE FINISHED!</h1>
+        <h2 style="color: white; font-size: 30px;">RANK: ${rank} / ${totalCars}</h2>
+        <p style="font-size: 24px; color: #ecf0f1;">YOUR TIME: ${formatTime(finalTimeMs)}</p>
+        <p style="font-size: 20px; color: #95a5a6;">BEST TIME: ${window.bestTime === Infinity ? 'N/A' : formatTime(window.bestTime)}</p>
+        ${isNewRecord ? '<h3 style="color: #2ecc71; margin-top: 10px;">★ NEW WORLD RECORD! ★</h3>' : ''}
+        <br>
+        <button onclick="showMainMenu()" style="padding: 15px 30px; font-size: 20px; background: #3498db; color: white; border: none; border-radius: 5px; cursor: pointer;">RETURN TO MENU</button>
+    `;
+
+    // Switch Screens
+    gameState = 'GAMEOVER';
+    document.getElementById('hud').classList.add('hidden');
+    document.getElementById('menu-layer').classList.remove('hidden');
+    gameOverDiv.classList.remove('hidden');
+    
+    // Stop Audio
+    if(typeof stopEngineSound === 'function') stopEngineSound();
+    if(typeof stopHeroMusic === 'function') stopHeroMusic();
+}
+
+// 4. Connect this to the Game Loop
+// We override the check inside the draw/update loop
+const originalUpdateLoop = window.update;
+window.update = function() {
+    // Run all original movement and physics
+    if (typeof originalUpdateLoop === 'function') originalUpdateLoop();
+
+    // CUSTOM FINISH CHECK
+    if (gameState === 'PLAY' && player.y < -RACE_LENGTH) {
+        handleRaceEnd();
+    }
+};
+
+
+// ==========================================
+// MOBILE UI AUTO-HIDE/SHOW LOGIC
+// ==========================================
+
+// 1. Find the touch controls container
+const touchContainer = document.querySelector('.touch-controls');
+
+// 2. Hide them initially
+if (touchContainer) {
+    touchContainer.style.display = 'none';
+}
+
+// 3. Create a function to toggle visibility
+function setTouchControlsVisible(visible) {
+    if (touchContainer) {
+        touchContainer.style.display = visible ? 'flex' : 'none';
+    }
+}
+
+// 4. Hook into the game start and menu functions
+const originalStartGameUI = window.startGame;
+window.startGame = function(color) {
+    // Run the original start logic
+    if (typeof originalStartGameUI === 'function') originalStartGameUI(color);
+    
+    // Show the controls!
+    setTouchControlsVisible(true);
+};
+
+const originalShowMenuUI = window.showMainMenu;
+window.showMainMenu = function() {
+    // Run the original menu logic
+    if (typeof originalShowMenuUI === 'function') originalShowMenuUI();
+    
+    // Hide the controls!
+    setTouchControlsVisible(false);
+};
+
+// Also hide them when the race ends (Game Over)
+const originalHandleRaceEnd = window.handleRaceEnd;
+if (typeof originalHandleRaceEnd === 'function') {
+    window.handleRaceEnd = function() {
+        originalHandleRaceEnd();
+        setTouchControlsVisible(false);
+    };
+}
+
+// ==========================================
+// NEW MENU SOUNDTRACK: DRIVING SYNTH-WAVE
+// ==========================================
+
+let menuLoop = null;
+let menuBeatIndex = 0;
+
+// Heroic but calmer menu melody (A Minor)
+const menuMelody = [220.00, 220.00, 261.63, 293.66, 220.00, 220.00, 196.00, 174.61];
+
+function playMenuPulse() {
+    if (gameState !== 'MENU') {
+        stopMenuMusic();
+        return;
+    }
+
+    const now = audioCtx.currentTime;
+    const freq = menuMelody[menuBeatIndex % menuMelody.length];
+    
+    const osc = audioCtx.createOscillator();
+    const mGain = audioCtx.createGain();
+    const mFilter = audioCtx.createBiquadFilter();
+
+    // 'sawtooth' is much louder and clearer than 'triangle'
+    osc.type = 'sawtooth'; 
+    osc.frequency.setValueAtTime(freq, now);
+    
+    mFilter.type = 'lowpass';
+    mFilter.frequency.value = 800; // Let more sound through for volume
+
+    osc.connect(mFilter);
+    mFilter.connect(mGain);
+    mGain.connect(audioCtx.destination);
+
+    // VOLUME: Set to 0.12 (same as your heroic race music)
+    mGain.gain.setValueAtTime(0.12, now);
+    mGain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+
+    osc.start(now);
+    osc.stop(now + 0.5);
+
+    menuBeatIndex++;
+}
+
+function startMenuMusic() {
+    if (menuLoop) return;
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    
+    menuBeatIndex = 0;
+    // Faster tempo (350ms per beat) to make it "catchy"
+    menuLoop = setInterval(playMenuPulse, 350);
+    playMenuPulse();
+    console.log("Menu Music Started");
+}
+
+function stopMenuMusic() {
+    if (menuLoop) {
+        clearInterval(menuLoop);
+        menuLoop = null;
+    }
+}
+
+// FORCE ATTACH TO NAVIGATION
+// This ensures that clicking "Return to Menu" or loading the page starts the music
+window.showMainMenu = (function(oldMenu) {
+    return function() {
+        if (typeof oldMenu === 'function') oldMenu();
+        if(typeof stopHeroMusic === 'function') stopHeroMusic();
+        startMenuMusic();
+    };
+})(window.showMainMenu);
+
+window.startGame = (function(oldStart) {
+    return function(color) {
+        stopMenuMusic();
+        if (typeof oldStart === 'function') oldStart(color);
+    };
+})(window.startGame);
+
+// Start immediately when the user interacts with the page
+window.addEventListener('mousedown', () => {
+    if (gameState === 'MENU') startMenuMusic();
+}, { once: false });
+
+window.addEventListener('touchstart', () => {
+    if (gameState === 'MENU') startMenuMusic();
+}, { once: false });
+
+// ==========================================
+// COLOR STEAL SOUNDTRACK: TECHNO CHASE (100% WORKING)
+// ==========================================
+
+let stealLoop = null;
+let stealIndex = 0;
+
+// High-pitched, energetic notes for the arena
+const stealNotes = [329.63, 349.23, 329.63, 261.63, 329.63, 349.23, 392.00, 440.00];
+
+function playStealBeat() {
+    // Only play if in Color Steal and the game is active
+    if (gameState !== 'PLAY' && gameState !== 'COUNTDOWN') {
+        stopStealMusic();
+        return;
+    }
+
+    const now = audioCtx.currentTime;
+    const freq = stealNotes[stealIndex % stealNotes.length];
+    
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    const f = audioCtx.createBiquadFilter();
+
+    // Sawtooth is the "Golden Wave" for your game—it's loud and clear
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(freq, now);
+    
+    f.type = 'lowpass';
+    f.frequency.value = 1000; // Bright and energetic
+
+    osc.connect(f);
+    f.connect(g);
+    g.connect(audioCtx.destination);
+
+    // Volume set to match your other tracks
+    g.gain.setValueAtTime(0.12, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+
+    osc.start(now);
+    osc.stop(now + 0.2);
+
+    stealIndex++;
+}
+
+function startStealMusic() {
+    if (stealLoop) return;
+    stealIndex = 0;
+    // Faster tempo than racing (160ms per beat)
+    stealLoop = setInterval(playStealBeat, 160);
+}
+
+function stopStealMusic() {
+    if (stealLoop) {
+        clearInterval(stealLoop);
+        stealLoop = null;
+    }
+}
+
+// FORCE ATTACH: This overrides the startGame specifically for music
+const finalMusicCheck = window.startGame;
+window.startGame = function(color) {
+    // 1. Run the original game start
+    if (typeof finalMusicCheck === 'function') finalMusicCheck(color);
+    
+    // 2. Kill all music first to be safe
+    if(typeof stopMenuMusic === 'function') stopMenuMusic();
+    if(typeof stopHeroMusic === 'function') stopHeroMusic();
+    if(typeof stopStealMusic === 'function') stopStealMusic();
+
+    // 3. Play the right one
+    if (selectedMode === 'COLOR_STEAL') {
+        startStealMusic();
+    } else {
+        if(typeof startHeroMusic === 'function') startHeroMusic();
+    }
+};
+
+
+
