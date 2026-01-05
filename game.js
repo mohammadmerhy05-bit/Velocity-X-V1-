@@ -165,7 +165,7 @@ function resize() {
     const rect = canvas.getBoundingClientRect();
     canvas.width = rect.width;
     canvas.height = rect.height;
-    ROAD_WIDTH = canvas.width * 0.5;
+    ROAD_WIDTH = canvas.width * 0.75;
 }
 window.addEventListener('load', resize);
 window.addEventListener('resize', resize);
@@ -1087,6 +1087,7 @@ window.startGame = function(color) {
         if(typeof startHeroMusic === 'function') startHeroMusic();
     }
 };
+
 
 
 
