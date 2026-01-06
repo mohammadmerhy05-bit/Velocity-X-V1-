@@ -511,7 +511,7 @@ function update() {
     if(offRoad && shakeAmount < 2) shakeAmount = 2;
     
     // Only update bots if we are in racing mode
-    if (selectedMode === 'RACING') {
+   if (selectedMode === 'RACING' ) {
         bots.forEach(b => b.update());
     }
     
@@ -640,8 +640,25 @@ function draw() {
             let rank = bots.filter(b => b.y < player.y).length + 1;
             document.getElementById('position').innerText = `POS: ${rank}/4`;
         }
-        
-        document.getElementById('speedometer').innerHTML = `${Math.floor(player.speed * 20)} <span class="unit">KM/H</span>`;
+        // ADD THESE TWO LINES HERE:
+if (selectedMode === 'COLOR_STEAL') document.getElementById('speedometer').style.color = "black";
+else document.getElementById('speedometer').style.color = "white";
+        // --- GOOFY SPEEDOMETER LOGIC ---
+let speedVal = Math.floor(player.speed * 20);
+let speedElem = document.getElementById('speedometer');
+
+if (speedVal > 430) { 
+    // The "OH NO" state: Shakes, turns red, and grows bigger
+    speedElem.style.color = "red";
+    speedElem.style.display = "block";
+    speedElem.style.transform = `translate(${(Math.random()-0.5)*10}px, ${(Math.random()-0.5)*10}px) scale(1.4)`;
+    speedElem.innerHTML = `⚠️ OVERLOAD ⚠️`;
+} else {
+    // Normal state: Static and follows our Steel Mode color logic
+    speedElem.style.transform = "translate(0,0) scale(1)";
+    speedElem.style.color = (selectedMode === 'COLOR_STEAL') ? "black" : "white";
+    speedElem.innerHTML = `${speedVal} <span class="unit">KM/H</span>`;
+}
         document.getElementById('nitro-fill').style.width = `${player.nitro}%`;
 
         if (gameState === 'COUNTDOWN') {
@@ -821,59 +838,59 @@ window.bestTime = savedBest ? parseFloat(savedBest) : Infinity;
 
 // 2. The Final Score Logic
 function handleRaceEnd() {
-    // Calculate Final Time
     const finalTimeMs = Date.now() - startTime;
     
-    // Calculate Rank (How many bots are ahead of you)
-    let rank = bots.filter(b => b.y < player.y).length + 1;
-    let totalCars = bots.length + 1; // You + Bots
+    // 1. Calculate BOT finishing times based on their Y position
+    // We compare where they are vs where you are to calculate their time
+    let participants = bots.map((b, index) => {
+        const distRatio = b.y / player.y; 
+        const botTime = finalTimeMs * distRatio + (Math.random() * 500);
+        return { name: `BOT ${index + 1}`, time: botTime, y: b.y, isPlayer: false };
+    });
 
-    // Check for New Best Time (only if you finished the race)
-    let isNewRecord = false;
-    if (finalTimeMs < window.bestTime) {
-        window.bestTime = finalTimeMs;
-        localStorage.setItem('racingBestTime', window.bestTime.toString());
-        isNewRecord = true;
-    }
+    // Add you to the list
+    participants.push({ name: "YOU (THE THIEF)", time: finalTimeMs, y: player.y, isPlayer: true });
 
-    // 3. Update the UI Text
+    // 2. Sort by Y-coordinate (Furthest ahead = lowest Y)
+    participants.sort((a, b) => a.y - b.y);
+
+    // 3. Generate the Leaderboard HTML
+    let leaderboardHTML = `<div id="leaderboard-list">`;
+    participants.forEach((p, index) => {
+        // This adds the "highlight" class if it's the player
+        let entryClass = p.isPlayer ? 'leaderboard-entry highlight' : 'leaderboard-entry';
+        leaderboardHTML += `
+            <div class="${entryClass}">
+                <span>${index + 1}. ${p.name}</span>
+                <span>${formatTime(p.time)}</span>
+            </div>`;
+    });
+    leaderboardHTML += `</div>`;
+
+    // 4. Update the Game Over Screen
     const gameOverDiv = document.getElementById('game-over');
-    
-    // Create a special results area inside the Game Over screen
     gameOverDiv.innerHTML = `
-        <h1 style="color: #f1c40f; font-size: 50px; margin-bottom: 10px;">RACE FINISHED!</h1>
-        <h2 style="color: white; font-size: 30px;">RANK: ${rank} / ${totalCars}</h2>
-        <p style="font-size: 24px; color: #ecf0f1;">YOUR TIME: ${formatTime(finalTimeMs)}</p>
-        <p style="font-size: 20px; color: #95a5a6;">BEST TIME: ${window.bestTime === Infinity ? 'N/A' : formatTime(window.bestTime)}</p>
-        ${isNewRecord ? '<h3 style="color: #2ecc71; margin-top: 10px;">★ NEW WORLD RECORD! ★</h3>' : ''}
-        <br>
-        <button onclick="showMainMenu()" style="padding: 15px 30px; font-size: 20px; background: #3498db; color: white; border: none; border-radius: 5px; cursor: pointer;">RETURN TO MENU</button>
+        <h1>RACE FINISHED</h1>
+        ${leaderboardHTML}
+        <p>BEST: ${window.bestTime === Infinity ? 'N/A' : formatTime(window.bestTime)}</p>
+        <button onclick="showMainMenu()" class="menu-btn">RETRY</button>
     `;
 
-    // Switch Screens
+    // 5. Game State Clean-up
     gameState = 'GAMEOVER';
     document.getElementById('hud').classList.add('hidden');
     document.getElementById('menu-layer').classList.remove('hidden');
     gameOverDiv.classList.remove('hidden');
     
-    // Stop Audio
     if(typeof stopEngineSound === 'function') stopEngineSound();
     if(typeof stopHeroMusic === 'function') stopHeroMusic();
-}
 
-// 4. Connect this to the Game Loop
-// We override the check inside the draw/update loop
-const originalUpdateLoop = window.update;
-window.update = function() {
-    // Run all original movement and physics
-    if (typeof originalUpdateLoop === 'function') originalUpdateLoop();
-
-    // CUSTOM FINISH CHECK
-    if (gameState === 'PLAY' && player.y < -RACE_LENGTH) {
-        handleRaceEnd();
+    // Update Local Best Time
+    if (finalTimeMs < window.bestTime) {
+        window.bestTime = finalTimeMs;
+        localStorage.setItem('racingBestTime', window.bestTime.toString());
     }
-};
-
+}
 
 // ==========================================
 // MOBILE UI AUTO-HIDE/SHOW LOGIC
@@ -1087,7 +1104,72 @@ window.startGame = function(color) {
         if(typeof startHeroMusic === 'function') startHeroMusic();
     }
 };
+// ==========================================
+// ULTIMATE LEADERBOARD INJECTION SCRIPT
+// ==========================================
 
+// 1. Override the draw function to handle the Finish Line trigger
+const backupDraw = draw;
+draw = function() {
+    backupDraw();
+    
+    // Check if player crossed the line and game hasn't ended yet
+    if (gameState === 'PLAY' && selectedMode === 'RACING' && player.y < -RACE_LENGTH) {
+        triggerLeaderboard();
+    }
+};
 
+// 2. The Leaderboard Logic
+function triggerLeaderboard() {
+    gameState = 'GAMEOVER';
+    const finalTimeMs = Date.now() - startTime;
 
+    // Calculate Bot Times based on their final Y positions
+    let participants = bots.map((b, index) => {
+        const distRatio = b.y / player.y; 
+        const botTime = finalTimeMs * distRatio + (Math.random() * 500);
+        return { name: `BOT ${index + 1}`, time: botTime, y: b.y, isPlayer: false };
+    });
 
+    // Add Player
+    participants.push({ name: "YOU (THE THIEF)", time: finalTimeMs, y: player.y, isPlayer: true });
+
+    // Sort: Lowest Y is the winner
+    participants.sort((a, b) => a.y - b.y);
+
+    // Build the HTML
+    let listHTML = `<div id="leaderboard-list">`;
+    participants.forEach((p, i) => {
+        let cssClass = p.isPlayer ? 'leaderboard-entry highlight' : 'leaderboard-entry';
+        listHTML += `
+            <div class="${cssClass}">
+                <span>${i + 1}. ${p.name}</span>
+                <span>${formatTime(p.time)}</span>
+            </div>`;
+    });
+    listHTML += `</div>`;
+
+    // Inject into the Game Over screen
+    const goDiv = document.getElementById('game-over');
+    goDiv.innerHTML = `
+        <h1>RACE FINISHED</h1>
+        ${listHTML}
+        <p>BEST: ${window.bestTime === Infinity ? 'N/A' : formatTime(window.bestTime)}</p>
+        <button onclick="location.reload()" class="menu-btn">RETRY</button>
+    `;
+
+    // Show screens
+    document.getElementById('hud').classList.add('hidden');
+    document.getElementById('menu-layer').classList.remove('hidden');
+    goDiv.classList.remove('hidden');
+
+    // Stop Sounds
+    if(typeof stopEngineSound === 'function') stopEngineSound();
+    if(typeof stopHeroMusic === 'function') stopHeroMusic();
+    
+    // Save High Score
+    if (finalTimeMs < window.bestTime) {
+        window.bestTime = finalTimeMs;
+        localStorage.setItem('racingBestTime', window.bestTime.toString());
+    }
+}
